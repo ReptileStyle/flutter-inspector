@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Flutter UI Inspector wrapper
+# Inspects running Flutter debug app and outputs UI for LLM context
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+
+if [[ -x "$VENV_PYTHON" ]]; then
+    exec "$VENV_PYTHON" "$SCRIPT_DIR/inspector.py" "$@"
+else
+    exec python3 "$SCRIPT_DIR/inspector.py" "$@"
+fi

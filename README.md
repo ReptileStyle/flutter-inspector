@@ -1,28 +1,70 @@
 # Flutter UI Inspector
 
-CLI-инструмент для инспекции UI запущенного Flutter-приложения в debug-режиме.
+CLI tool for inspecting UI of a running Flutter app in debug mode. Designed for AI agents (Claude, GPT, etc.) to understand what's on screen.
 
-## Для AI-агентов: какой режим использовать?
+## Installation
 
-| Задача | Команда | Описание |
-|--------|---------|----------|
-| "Что на экране?" | `flutter-inspect --content` | Список текста и иконок с контекстом (~300 строк) |
-| "Понять структуру" | `flutter-inspect --smart` | Фильтрованное дерево виджетов (~1700 строк) |
-| "Почему тут отступ?" | `flutter-inspect --trace "текст"` | Путь от root до элемента с padding/constraints |
-| "Нужно всё дерево" | `flutter-inspect --widgets` | Raw debugDumpApp (~4000 строк) |
+```bash
+git clone https://github.com/user/flutter_ui_inspector.git
+cd flutter_ui_inspector
+python3 -m venv .venv
+.venv/bin/pip install websocket-client
 
-### Примеры вывода
+# Add to PATH (optional)
+echo 'export PATH="$PATH:'$(pwd)'"' >> ~/.bashrc
+source ~/.bashrc
+```
 
-**--content** (лучший для "что ты видишь на экране?"):
+## Quick Start
+
+```bash
+# Start your Flutter app in debug mode
+flutter run
+
+# In another terminal:
+flutter-inspect --content    # What's on screen?
+flutter-inspect --smart      # Widget structure
+flutter-inspect --widgets    # Full widget tree
+```
+
+## For AI Agents
+
+| Task | Command | Output |
+|------|---------|--------|
+| "What's on screen?" | `--content` | Text and icons with context (~300 lines) |
+| "Widget structure" | `--smart` | Filtered widget tree (~1700 lines) |
+| "Why this padding?" | `--trace "text"` | Path from root to element with constraints |
+| "Full tree" | `--widgets` | Raw debugDumpApp (~4000 lines) |
+
+**Important:**
+- App must be in **debug mode** (not profile!) — otherwise widget tree is unavailable
+- **Don't use `--raw`** — gives inconvenient output
+
+### Processing `--widgets` output
+
+Lines are long due to tree prefixes. Use these commands:
+
+```bash
+# Save and search
+flutter-inspect --widgets > /tmp/widgets.txt
+grep -n "Editor\|TableCell\|padding" /tmp/widgets.txt
+
+# Clean tree prefixes for readability
+sed -n '100,120p' /tmp/widgets.txt | sed 's/^.*│//' | sed 's/^[ │└├─]*//'
+```
+
+### Output Examples
+
+**--content** (best for "what do you see on screen?"):
 ```
 Row(start) > Expanded > Column(start)
-  → "Задача на сегодня"
+  → "Today's task"
 Row(start) > Flexible
-  → "12 апр 2019 / Основной проект" [gray]
+  → "Apr 12 2019 / Main project" [gray]
   → Icon(U+0E018) [gray]
 ```
 
-**--smart** (лучший для "какая структура экрана?"):
+**--smart** (best for "what's the screen structure?"):
 ```
 Scaffold
   Row(start/center)
@@ -31,83 +73,64 @@ Scaffold
         [CardWithSwipes]
           Row(start/center)
             Padding(pad:0.0, 12.0, 15.0, 0.0)
-              Text("Задача на сегодня")
+              Text("Today's task")
 ```
 
-**--trace "12 апр"** (лучший для "откуда отступ?"):
+**--trace "Apr 12"** (best for "where's this padding from?"):
 ```
-# Layout Trace: '12 апр'
+# Layout Trace: 'Apr 12'
 
 Scaffold
   Row (align:start/center)
     Expanded (flex:1)
       Column (align:start/start)
-        Container (pad:0.0, 6.0, 0.0, 0.0)   ← вот откуда 6px сверху
+        Container (pad:0.0, 6.0, 0.0, 0.0)   ← here's the 6px top padding
           Padding (pad:0.0, 6.0, 0.0, 0.0)
             Row (align:start/center)
               Flexible (flex:1)
-                Text ("12 апр 2019 / Основной проект")
+                Text ("Apr 12 2019 / Main project")
 ```
 
-## Установка
-
-```bash
-cd ~/scripts/flutter_ui_inspector
-python3 -m venv .venv
-.venv/bin/pip install websocket-client
-```
-
-## Как это работает
+## How It Works
 
 ```
 Flutter App (debug) → VM Service → flutter-inspect → Filtered Output
 ```
 
-1. **Flutter прокси** (`~/fvm/versions/3.35.5/bin/flutter`) перехватывает VM Service URI при `flutter run` и сохраняет в `/tmp/flutter_vm_service_uri`
+1. When you run `flutter run`, Flutter exposes a VM Service endpoint
+2. **flutter-inspect** discovers the URI (from `/tmp/flutter_vm_service_uri` or by scanning ports)
+3. Connects via WebSocket and calls `ext.flutter.debugDumpApp`
+4. Filters and formats the output
 
-2. **flutter-inspect** читает URI и подключается через WebSocket
-
-3. Вызывает `ext.flutter.debugDumpApp` и фильтрует вывод
-
-## Использование
-
-**Полный путь:** `/home/igorkuzevanov/scripts/flutter-inspect`
-
-**Важно для AI-агентов:**
-- Приложение должно быть в **debug mode** (не profile!) — иначе widget tree недоступен
-- **НЕ используй `--raw`** — даёт неудобный вывод
+## All Options
 
 ```bash
-# Рекомендуемые режимы для агентов
-/home/igorkuzevanov/scripts/flutter-inspect --widgets > /tmp/widgets.txt  # Полное дерево
-/home/igorkuzevanov/scripts/flutter-inspect --content   # Что на экране?
-/home/igorkuzevanov/scripts/flutter-inspect --smart     # Структура экрана
-/home/igorkuzevanov/scripts/flutter-inspect --trace "Сегодня"  # Дебаг расположения
+flutter-inspect --content              # Text and icons on screen
+flutter-inspect --smart                # Filtered widget tree
+flutter-inspect --trace "text"         # Trace path to element
+flutter-inspect --widgets              # Full widget tree
 
-# Обработка вывода --widgets (строки длинные из-за дерева)
-grep -n "Editor\|TableCell\|padding" /tmp/widgets.txt   # Поиск виджетов
-sed -n '100,120p' /tmp/widgets.txt | sed 's/^.*│//' | sed 's/^[ │└├─]*//'  # Очистка префиксов
+# Additional
+flutter-inspect --content --tokens     # Show token count
+flutter-inspect --content -q           # Quiet mode (no connection status)
+flutter-inspect --list                 # List debug sessions
 
-# Дополнительные опции
-flutter-inspect --content --tokens     # + подсчёт токенов
-flutter-inspect --content -q           # Тихий режим (без статуса подключения)
-flutter-inspect --list                 # Список debug-сессий
-
-# Указать URI вручную
+# Manual URI
 flutter-inspect --uri ws://127.0.0.1:12345/TOKEN=/ws --content
 ```
 
-## Требования
+## Requirements
 
-- Flutter app запущен через `flutter run` (запускает пользователь, не агент)
+- Flutter app running via `flutter run` (user starts it, not the agent)
 - Python 3.8+
 - websocket-client
 
-## Структура проекта
+## Project Structure
 
 ```
 flutter_ui_inspector/
-├── inspector.py              # CLI entry point
+├── flutter-inspect           # CLI wrapper script
+├── inspector.py              # Main CLI entry point
 ├── discovery.py              # VM Service URI discovery
 ├── extractors/
 │   └── semantics.py          # VM Service client
@@ -119,18 +142,22 @@ flutter_ui_inspector/
 
 ## Troubleshooting
 
-**"PROFILE MODE" / пустой вывод**
-- Приложение запущено в profile mode — widget tree недоступен
-- Перезапусти с `flutter run` (без `--profile`)
+**"PROFILE MODE" / empty output**
+- App is running in profile mode — widget tree unavailable
+- Restart with `flutter run` (without `--profile`)
 
 **"No Flutter debug app found"**
-- Убедись что приложение запущено через `flutter run`
-- Проверь: `cat /tmp/flutter_vm_service_uri`
+- Make sure app is running via `flutter run`
+- Check: `cat /tmp/flutter_vm_service_uri`
 
 **"Connection refused"**
-- Приложение было закрыто или перезапущено
-- Перезапусти `flutter run`
+- App was closed or restarted
+- Restart `flutter run`
 
-**Вывод слишком большой**
-- Используй `--content` вместо `--widgets`
-- Добавь `--tokens` чтобы видеть размер
+**Output too large**
+- Use `--content` instead of `--widgets`
+- Add `--tokens` to see size
+
+## License
+
+MIT
