@@ -1,0 +1,26 @@
+#!/bin/bash
+# Flutter proxy that captures VM Service URI for flutter-inspect
+#
+# Installation:
+#   1. Rename original flutter: mv $(which flutter) $(dirname $(which flutter))/flutter_orig
+#   2. Copy this script: cp flutter-proxy $(dirname $(which flutter))/flutter
+#   3. Make executable: chmod +x $(dirname $(which flutter))/flutter
+
+VM_SERVICE_FILE="/tmp/flutter_vm_service_uri"
+
+# Decode arguments (handles unicode escapes)
+decoded_args=()
+for arg in "$@"; do
+    decoded_arg=$(python3 -c "import sys; print(sys.argv[1].encode().decode('unicode_escape'))" "$arg" 2>/dev/null || echo "$arg")
+    decoded_args+=("$decoded_arg")
+done
+
+command=(stdbuf -oL "$(dirname "$0")/flutter_orig" "${decoded_args[@]}")
+
+# Run and parse output on the fly
+"${command[@]}" 2>&1 | while IFS= read -r line; do
+    echo "$line"
+    if [[ "$line" == *"available at:"* ]]; then
+        echo "$line" | sed -n 's/.*available at: \(http[^ ]*\).*/\1/p' > "$VM_SERVICE_FILE"
+    fi
+done

@@ -15,6 +15,24 @@ echo 'export PATH="$PATH:'$(pwd)'"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
+### Flutter Proxy Setup (required)
+
+The inspector needs to know the VM Service URI. Install the proxy to capture it automatically:
+
+```bash
+# Find your flutter binary
+FLUTTER_BIN=$(dirname $(which flutter))
+
+# Backup original
+mv "$FLUTTER_BIN/flutter" "$FLUTTER_BIN/flutter_orig"
+
+# Install proxy
+cp flutter-proxy "$FLUTTER_BIN/flutter"
+chmod +x "$FLUTTER_BIN/flutter"
+```
+
+The proxy intercepts `flutter run` output and saves the VM Service URI to `/tmp/flutter_vm_service_uri`.
+
 ## Quick Start
 
 ```bash
@@ -130,6 +148,7 @@ flutter-inspect --uri ws://127.0.0.1:12345/TOKEN=/ws --content
 ```
 flutter_ui_inspector/
 ├── flutter-inspect           # CLI wrapper script
+├── flutter-proxy             # Flutter proxy to capture VM Service URI
 ├── inspector.py              # Main CLI entry point
 ├── discovery.py              # VM Service URI discovery
 ├── extractors/
