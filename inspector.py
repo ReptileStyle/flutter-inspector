@@ -6,10 +6,10 @@ Automatically connects to a running Flutter debug app and outputs
 a compact representation of the current UI for LLM context.
 
 Usage:
-    flutter-inspect              # Auto-discover and inspect
-    flutter-inspect --json       # Output as JSON
-    flutter-inspect --watch      # Watch for changes
-    flutter-inspect --uri <uri>  # Connect to specific VM service
+    flutter-inspect --content       # What's on screen? (best for agents)
+    flutter-inspect --smart         # Filtered widget tree
+    flutter-inspect --trace "text"  # Why is this element here?
+    flutter-inspect --widgets       # Raw widget tree (verbose)
 """
 
 import argparse
@@ -22,6 +22,7 @@ from discovery import discover_vm_service, list_vm_services
 from extractors.semantics import get_compact_semantics, VMServiceClient
 from formatters.compact import format_compact, format_tree, format_minimal, estimate_tokens
 from formatters.json_output import format_json, format_compact_json
+from formatters.widget_filter import format_smart, format_content_only, format_layout_trace
 
 
 def main():
@@ -29,72 +30,84 @@ def main():
         description='Inspect Flutter UI for LLM context',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
+Widget Tree Modes (recommended for agents):
+  %(prog)s --content          What's on screen? Text, icons with context
+  %(prog)s --smart            Filtered tree - layout widgets only
+  %(prog)s --trace "text"     Layout path to specific text (debug spacing)
+  %(prog)s --widgets          Raw widget tree (verbose, 4000+ lines)
+
 Examples:
-  %(prog)s                    Auto-discover and inspect
-  %(prog)s --json             Output as JSON
-  %(prog)s --minimal          Ultra-compact output
-  %(prog)s --watch            Watch for UI changes
-  %(prog)s --uri ws://...     Connect to specific service
-  %(prog)s --list             List available services
+  %(prog)s --content          Best for "what do you see?"
+  %(prog)s --smart            Best for "understand screen structure"
+  %(prog)s --trace "Сегодня"  Best for "why is this here?"
+  %(prog)s --list             List available debug services
 '''
     )
 
-    parser.add_argument(
+    # Widget tree modes (main modes for agents)
+    widget_group = parser.add_argument_group('Widget Tree Modes')
+    widget_group.add_argument(
+        '--content',
+        action='store_true',
+        help='Content summary: text, icons with layout context (best for agents)'
+    )
+    widget_group.add_argument(
+        '--smart',
+        action='store_true',
+        help='Filtered widget tree: only layout-relevant widgets'
+    )
+    widget_group.add_argument(
+        '--trace',
+        metavar='TEXT',
+        help='Layout trace: show path from root to TEXT with padding/constraints'
+    )
+    widget_group.add_argument(
+        '--widgets',
+        action='store_true',
+        help='Raw widget tree from debugDumpApp (verbose)'
+    )
+
+    # Connection options
+    conn_group = parser.add_argument_group('Connection')
+    conn_group.add_argument(
         '--uri',
         help='VM Service WebSocket URI (e.g., ws://127.0.0.1:8181/ws)'
     )
-    parser.add_argument(
+    conn_group.add_argument(
         '--list',
         action='store_true',
         help='List all discovered Flutter debug services'
     )
-    parser.add_argument(
-        '--format', '-f',
-        choices=['compact', 'tree', 'minimal', 'json', 'json-compact'],
-        default='compact',
-        help='Output format (default: compact)'
-    )
-    parser.add_argument(
-        '--json',
+
+    # Output options
+    output_group = parser.add_argument_group('Output')
+    output_group.add_argument(
+        '--tokens',
         action='store_true',
-        help='Shortcut for --format json'
+        help='Show estimated token count'
     )
-    parser.add_argument(
-        '--minimal',
+    output_group.add_argument(
+        '--quiet', '-q',
         action='store_true',
-        help='Shortcut for --format minimal'
+        help='Suppress connection info, output only UI data'
     )
-    parser.add_argument(
+    output_group.add_argument(
         '--watch', '-w',
         action='store_true',
         help='Watch for UI changes (Ctrl+C to stop)'
     )
-    parser.add_argument(
+    output_group.add_argument(
         '--interval',
         type=float,
         default=2.0,
         help='Watch interval in seconds (default: 2.0)'
     )
-    parser.add_argument(
-        '--raw',
-        action='store_true',
-        help='Output raw semantics dump from Flutter'
-    )
-    parser.add_argument(
-        '--widgets',
-        action='store_true',
-        help='Use widget tree instead of semantics (no TalkBack needed)'
-    )
-    parser.add_argument(
-        '--tokens',
-        action='store_true',
-        help='Show estimated token count'
-    )
-    parser.add_argument(
-        '--quiet', '-q',
-        action='store_true',
-        help='Suppress connection info, output only UI data'
-    )
+
+    # Legacy/semantics options (hidden, for backwards compat)
+    parser.add_argument('--raw', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--format', '-f', default='compact', help=argparse.SUPPRESS)
+    parser.add_argument('--json', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--minimal', action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
@@ -156,31 +169,31 @@ def inspect_once(uri: str, args) -> int:
     """Perform single UI inspection."""
     try:
         with VMServiceClient(uri) as client:
+            # Widget tree modes (--content, --smart, --trace, --widgets)
+            if args.content or args.smart or args.trace or args.widgets:
+                return inspect_widget_tree(client, args)
+
+            # Legacy: raw semantics dump
             if args.raw:
-                # Raw dump mode
                 raw = client.get_semantics_tree()
                 print(raw)
                 return 0
 
-            if args.widgets:
-                # Widget tree mode
-                return inspect_widget_tree(client, args)
-
-            # Try semantics first
+            # Legacy: try semantics first (requires TalkBack)
             nodes = get_compact_semantics(uri)
 
             if not nodes:
                 if not args.quiet:
-                    print("Semantics empty, falling back to widget tree...", file=sys.stderr)
+                    print("Semantics empty, using --content mode...", file=sys.stderr)
+                args.content = True
                 return inspect_widget_tree(client, args)
 
-            # Format output
+            # Format output (legacy semantics format)
             device_info = {'uri': uri} if not args.quiet else None
             output = format_output(nodes, args.format, device_info)
 
             print(output)
 
-            # Show token estimate
             if args.tokens:
                 tokens = estimate_tokens(output)
                 print(f"\n[Estimated tokens: ~{tokens}]", file=sys.stderr)
@@ -199,11 +212,22 @@ def inspect_once(uri: str, args) -> int:
 def inspect_widget_tree(client: VMServiceClient, args) -> int:
     """Inspect using widget tree (debugDumpApp)."""
     try:
-        output = client.get_widget_tree_text()
+        raw_dump = client.get_widget_tree_text()
 
-        if not output:
+        if not raw_dump:
             print("Widget tree is empty", file=sys.stderr)
             return 1
+
+        # Choose output format based on args
+        if args.content:
+            output = format_content_only(raw_dump)
+        elif args.smart:
+            output = format_smart(raw_dump)
+        elif args.trace:
+            output = format_layout_trace(raw_dump, args.trace)
+        else:
+            # Raw widget tree
+            output = raw_dump
 
         print(output)
 
