@@ -25,6 +25,54 @@ from formatters.json_output import format_json, format_compact_json
 from formatters.widget_filter import format_smart, format_content_only, format_layout_trace
 
 
+QUICK_HELP = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                      FLUTTER-INSPECT: AI AGENT GUIDE                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+WHAT IS THIS?
+  Tool to see what's on screen in a running Flutter debug app.
+  Prerequisite: Flutter app must be running via `flutter run` (debug mode).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECOMMENDED WORKFLOW (for AI agents)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Step 1: Save full widget tree to temp file (DO THIS FIRST):
+
+      flutter-inspect --widgets > /tmp/flutter_widgets.txt
+
+  Step 2: Work with the saved file:
+
+      grep -n "YourWidget\\|Text\\|padding" /tmp/flutter_widgets.txt
+      head -100 /tmp/flutter_widgets.txt
+      sed -n '50,100p' /tmp/flutter_widgets.txt
+
+  Why? The raw output is 4000+ lines. Save once, grep many times.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+QUICK COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  flutter-inspect --content     "What text/icons are on screen?"  (~300 lines)
+  flutter-inspect --smart       "What's the widget structure?"    (~1700 lines)
+  flutter-inspect --widgets     "Give me everything"              (~4000 lines)
+  flutter-inspect --trace "X"   "Why does X have this padding?"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMMON ERRORS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  "No Flutter debug app found"  → Run `flutter run` first in the Flutter project
+  Empty output / "PROFILE MODE" → App in profile mode, restart with `flutter run`
+  "Connection refused"          → App was closed, restart it
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Run with --help for all options.
+"""
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Inspect Flutter UI for LLM context',
@@ -110,6 +158,15 @@ Examples:
     parser.add_argument('--minimal', action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
+
+    # If no mode specified, show quick help for AI agents
+    has_mode = any([
+        args.content, args.smart, args.trace, args.widgets,
+        args.list, args.raw, args.uri
+    ])
+    if not has_mode:
+        print(QUICK_HELP)
+        return 0
 
     # Handle format shortcuts
     if args.json:
